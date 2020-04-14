@@ -1,5 +1,6 @@
 package order;
 
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -14,6 +15,7 @@ public class ExtractToStaging {
 			DeliveryAssignedDriver deliveryAssignedDriver) throws SQLException {
 
 		//variables fro connection and SQL scripts 
+		Statement statementQueryAddress = null;		
 		Statement statementInsert = null;		
 		String sqlOrder = null;
 		String sqlPriceDetail = null;
@@ -26,6 +28,7 @@ public class ExtractToStaging {
 		String sqlPickupAssignedDriver = null;
 		String sqlDeliveryAssignedDriver = null;
 		String sqlDistance = null;
+		String distanceMeter = null;
 		
 		//Result
 		String result = null;
@@ -36,22 +39,44 @@ public class ExtractToStaging {
 		Geocoder to = null;
 		int distance = 0;
 		String distanceResult = null;
+		String fromAddress = null;
+		String toAddress = null;
 		
 		
 		//Get distance by call Baidu webservice		
 		try {
-			 mapUtil = new MapUtil();
-			 from = mapUtil.getGeocoder(shipFrom.getAddress(0).replace(" ", ""));
-			 to = mapUtil.getGeocoder(shipTo.getAddress(0).replace(" ", ""));
-			 //System.out.println(from.getLat());
-			 //System.out.println(to.getLng());
+			
+			statementQueryAddress = OrderExtraction.conn.createStatement();
+			ResultSet resultSetDistanceMeter = statementQueryAddress.executeQuery("SELECT distanceMeter FROM EX_Distance WHERE orderNumber = ( " + 
+					"SELECT MAX(f.orderNumber) FROM EX_ShipFrom f, EX_ShipTo t WHERE f.orderNumber = t.orderNumber AND f.address = '" + shipFrom.getAddress(0) + "' AND t.address = '" + shipTo.getAddress(0) + "' );");
+			while(resultSetDistanceMeter.next()) {
+				distanceMeter = resultSetDistanceMeter.getString("distanceMeter");
+			}
+			if (distanceMeter == null){
+				mapUtil = new MapUtil();
+				fromAddress = shipFrom.getAddress(0).replace(" ", "");
+				toAddress = shipTo.getAddress(0).replace(" ", "");
+				if (fromAddress.length() > 42) {					
+					fromAddress = fromAddress.substring(fromAddress.length()-42,fromAddress.length());
+				}
+				if (toAddress.length() > 42) {					
+					toAddress = toAddress.substring(toAddress.length()-42,toAddress.length());
+				}
+				from = mapUtil.getGeocoder(fromAddress);
+				to = mapUtil.getGeocoder(toAddress);
+				//System.out.println(from.getLat());
+				//System.out.println(to.getLng());
+				 
+				distance = mapUtil.getDistance(from, to);
+				distanceMeter = String.valueOf(distance);
+				//System.out.println(distance);
+				distanceResult = from.getLat() + "; " + to.getLng();
+			}
 			 
-			 distance = mapUtil.getDistance(from, to);
-			 //System.out.println(distance);
-			 distanceResult = from.getLat() + "; " + to.getLng();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			//e.printStackTrace();
+			distanceMeter = "0";
 			distanceResult = e.toString();
 		}
 		System.out.println("=================GotDistance");
@@ -235,7 +260,7 @@ public class ExtractToStaging {
 			//Execute SQL for Distance
 			sqlDistance = "INSERT INTO EX_Distance(orderNumber,distanceMeter," +
 		            "metaComment,metaSource,metaCreateOn,metaCreatedBy) VALUES('" + 
-					order.getOrderNumber() + "','" + distance + "','" + 
+					order.getOrderNumber() + "','" + distanceMeter + "','" + 
 					distanceResult + "','" + "OTMS" + "','" + OrderOutbound.dateTime + "','" + "" +"')";				
 			statementInsert.executeUpdate(sqlDistance);
 			OrderOutbound.distanceCount = OrderOutbound.distanceCount + statementInsert.getUpdateCount();
